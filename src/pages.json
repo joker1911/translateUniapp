@@ -1,0 +1,17 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "通话翻译助手",
+        "navigationBarBackgroundColor": "#0f172a",
+        "navigationBarTextStyle": "white"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationStyle": "default",
+    "backgroundColor": "#0f172a",
+    "backgroundTextStyle": "light"
+  }
+}
