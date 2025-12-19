@@ -10,6 +10,6 @@
 - 翻译失败时自动回退原文，避免阻塞 UI。
 
 ## 运行
-1. 使用 HBuilderX 或 `@dcloudio/uni-app` CLI 导入项目（源码位于 `src/` 目录）。
+1. 使用 HBuilderX 或 `@dcloudio/uni-app` CLI 导入项目。
 2. 在页面内填写 API Key、接口地址等配置。
 3. 点击“开始监听”体验实时翻译与悬浮字幕。
