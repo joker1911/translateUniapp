@@ -2,288 +2,230 @@
   <view class="page">
     <view class="hero">
       <view class="title-area">
-        <text class="eyebrow">UNI-APP · 实时翻译</text>
-        <text class="title">通话翻译助手</text>
+        <text class="eyebrow">视频 · 双语字幕 · 查词</text>
+        <text class="title">学习型播放器</text>
         <text class="subtitle">
-          捕捉通话内容，自动调用可配置的翻译 API（谷歌/大模型/自定义）。支持悬浮字幕，方便跨应用查看。
+          支持点击字幕跳转、当前字幕自动高亮滚动，单词查词弹窗，以及原文+译文双语显示。
         </text>
       </view>
       <view class="cta">
-        <button class="primary" type="primary" @click="startListening">开始监听</button>
-        <button class="ghost" @click="toggleOverlay">
-          {{ overlayVisible ? '隐藏悬浮框' : '显示悬浮框' }}
+        <button class="primary" type="primary" @click="reloadSubtitles" :loading="loading">
+          重新加载字幕
+        </button>
+        <button class="ghost" @click="toggleTranslation">
+          {{ showTranslation ? '隐藏中文' : '显示中文' }}
         </button>
       </view>
     </view>
 
-    <view class="grid">
-      <view class="card">
-        <view class="card-header">
-          <text class="card-title">通话状态</text>
-          <view class="tag" :class="{ online: listening }">{{ statusLabel }}</view>
-        </view>
-        <view class="stats">
-          <view class="stat">
-            <text class="label">接口状态</text>
-            <text class="value">{{ connectionStatus }}</text>
+    <view class="layout">
+      <view class="card player-card">
+        <video
+          id="study-player"
+          class="player"
+          :src="videoUrl"
+          controls
+          show-progress
+          :enable-play-gesture="true"
+          @timeupdate="handleTimeUpdate"
+          @ended="handleEnded"
+        ></video>
+        <view class="player-meta">
+          <view class="meta-item">
+            <text class="label">当前时间</text>
+            <text class="value">{{ (currentTime / 1000).toFixed(1) }} s</text>
           </view>
-          <view class="stat">
-            <text class="label">最近耗时</text>
-            <text class="value">{{ latency }} ms</text>
+          <view class="meta-item">
+            <text class="label">当前字幕</text>
+            <text class="value">#{{ currentCue?.id ?? '-' }}</text>
           </view>
-          <view class="stat">
-            <text class="label">悬浮框</text>
-            <text class="value">{{ overlayVisible ? '开启' : '关闭' }}</text>
+          <view class="meta-item">
+            <text class="label">字幕数量</text>
+            <text class="value">{{ cues.length }}</text>
           </view>
-        </view>
-        <view class="actions-row">
-          <button class="primary" type="primary" @click="startListening" :disabled="listening">
-            开始实时翻译
-          </button>
-          <button class="danger" type="warn" @click="stopListening" :disabled="!listening">
-            停止
-          </button>
-          <button class="ghost" @click="clearHistory" :disabled="!history.length">
-            清空记录
-          </button>
-        </view>
-        <view class="input-box">
-          <text class="input-label">手动输入（用于调试或未识别的语句）</text>
-          <textarea
-            v-model="currentInput"
-            class="textarea"
-            placeholder="输入一句话模拟通话内容，然后点击翻译"
-            auto-height
-            :maxlength="-1"
-          />
-          <button class="primary" type="primary" @click="handleManualTranslate">翻译文本</button>
         </view>
       </view>
 
-      <view class="card">
+      <view class="card subtitle-card">
         <view class="card-header">
-          <text class="card-title">翻译配置</text>
-          <text class="desc">可选 Google、通用 REST 或大模型接口</text>
+          <text class="card-title">互动字幕</text>
+          <text class="desc">点击行跳转，单词可查词</text>
         </view>
-
-        <view class="form-row">
-          <text class="label">提供商</text>
-          <picker :value="providerIndex" :range="providerLabels" @change="handleProviderChange">
-            <view class="picker">{{ providerLabels[providerIndex] }}</view>
-          </picker>
-        </view>
-
-        <view class="form-row">
-          <text class="label">API Key</text>
-          <input
-            v-model="config.apiKey"
-            class="input"
-            placeholder="用于请求鉴权"
-            type="text"
-          />
-        </view>
-
-        <view class="form-row">
-          <text class="label">请求地址</text>
-          <input
-            v-model="config.endpoint"
-            class="input"
-            placeholder="https://translation.googleapis.com/language/translate/v2"
-            type="text"
-          />
-        </view>
-
-        <view class="form-row">
-          <text class="label">目标语言</text>
-          <picker :value="targetIndex" :range="languageLabels" @change="handleTargetChange">
-            <view class="picker">{{ languageLabels[targetIndex] }}</view>
-          </picker>
-        </view>
-
-        <view class="form-row">
-          <text class="label">原始语言</text>
-          <picker :value="sourceIndex" :range="sourceLanguageLabels" @change="handleSourceChange">
-            <view class="picker">{{ sourceLanguageLabels[sourceIndex] }}</view>
-          </picker>
-        </view>
-
-        <view class="form-row">
-          <text class="label">大模型/自定义模型名</text>
-          <input
-            v-model="config.model"
-            class="input"
-            placeholder="例如 gpt-4o-mini / llama3"
-            type="text"
-          />
-        </view>
+        <scroll-view
+          class="subtitle-list"
+          scroll-y
+          :scroll-into-view="scrollIntoViewId"
+          scroll-with-animation
+        >
+          <view v-if="!cues.length" class="empty">正在加载字幕...</view>
+          <view
+            v-for="(cue, index) in cues"
+            :id="`cue-${cue.id}`"
+            :key="cue.id"
+            class="cue-row"
+            :class="{ active: index === currentCueIndex }"
+            @click="jumpToCue(cue)"
+          >
+            <view class="cue-time">{{ formatTime(cue.startMs) }} - {{ formatTime(cue.endMs) }}</view>
+            <view class="cue-text">
+              <template v-for="(token, tIndex) in cue.tokens" :key="`${cue.id}-${tIndex}`">
+                <text
+                  v-if="token.norm"
+                  class="token"
+                  @click.stop="onWordClick(token.norm, cue, $event)"
+                >
+                  {{ token.t }}
+                </text>
+                <text v-else>{{ token.t }}</text>
+              </template>
+              <text v-if="!cue.tokens?.length">{{ cue.text }}</text>
+            </view>
+            <view v-if="showTranslation && cue.translation" class="cue-translation">{{ cue.translation }}</view>
+          </view>
+        </scroll-view>
       </view>
     </view>
 
-    <view class="card full">
-      <view class="card-header">
-        <text class="card-title">翻译记录</text>
-        <text class="desc">最新 20 条通话片段</text>
+    <view v-if="dictPopup.visible" class="dict-popup" :style="popupStyle">
+      <view class="dict-header">
+        <text class="dict-term">{{ dictPopup.data?.term }}</text>
+        <text v-if="dictPopup.data?.phonetic" class="dict-phonetic">/{{ dictPopup.data.phonetic }}/</text>
+        <button class="mini-btn" size="mini" @click="closePopup">关闭</button>
       </view>
-      <scroll-view class="history" :scroll-y="true">
-        <view v-if="!history.length" class="empty">暂无记录，开始监听后会实时更新</view>
-        <view v-for="item in history" :key="item.id" class="history-row">
-          <view class="history-meta">
-            <text class="badge">{{ item.language.toUpperCase() }}</text>
-            <text class="time">{{ item.ts }}</text>
-          </view>
-          <text class="origin">{{ item.original }}</text>
-          <view class="translated">
-            <text class="badge ghost">{{ item.targetLanguage.toUpperCase() }}</text>
-            <text class="text">{{ item.translated }}</text>
-          </view>
+      <view v-if="dictPopup.data?.pos?.length" class="dict-body">
+        <view v-for="(item, idx) in dictPopup.data.pos" :key="idx" class="dict-pos">
+          <text class="pos-type">{{ item.type }}</text>
+          <text class="pos-meaning">{{ item.meaning }}</text>
         </view>
-      </scroll-view>
+      </view>
+      <view v-if="dictPopup.data?.examples?.length" class="dict-examples">
+        <view v-for="(ex, idx) in dictPopup.data.examples" :key="`ex-${idx}`" class="dict-example">
+          <text class="ex-en">{{ ex.en }}</text>
+          <text class="ex-zh">{{ ex.zh }}</text>
+        </view>
+      </view>
+      <view v-if="dictPopup.data?.message" class="dict-message">{{ dictPopup.data.message }}</view>
     </view>
-
-    <FloatingTranscript
-      :messages="overlayMessages"
-      :visible="overlayVisible"
-      :is-live="listening"
-      @toggle="toggleOverlay"
-    />
   </view>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
-import FloatingTranscript from '@/components/FloatingTranscript.vue'
-import { translateText } from '@/services/translator'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { fetchSubtitles, lookupDictionary, translateMissingCues } from '@/services/media'
 
-const providers = [
-  { label: 'Google 翻译 API', value: 'google', endpoint: 'https://translation.googleapis.com/language/translate/v2' },
-  { label: '大模型接口', value: 'llm', endpoint: 'https://api.openai.com/v1/chat/completions' },
-  { label: '自定义 REST', value: 'custom', endpoint: 'https://your.translation.endpoint' }
-]
+const videoId = ref('demo-video')
+const videoUrl = ref('https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4')
+const cues = ref([])
+const currentCueIndex = ref(-1)
+const currentTime = ref(0)
+const scrollIntoViewId = ref('')
+const showTranslation = ref(true)
+const loading = ref(false)
+const videoContext = ref(null)
+const dictPopup = ref({ visible: false, x: 20, y: 20, data: null })
 
-const languages = [
-  { label: '自动检测', value: 'auto' },
-  { label: '简体中文', value: 'zh' },
-  { label: '英语', value: 'en' },
-  { label: '日语', value: 'ja' },
-  { label: '韩语', value: 'ko' },
-  { label: '西班牙语', value: 'es' },
-  { label: '法语', value: 'fr' }
-]
+const currentCue = computed(() => (currentCueIndex.value >= 0 ? cues.value[currentCueIndex.value] : null))
 
-const config = reactive({
-  provider: providers[0].value,
-  apiKey: '',
-  endpoint: providers[0].endpoint,
-  sourceLanguage: 'auto',
-  targetLanguage: 'en',
-  model: 'gpt-4o-mini'
+onMounted(async () => {
+  videoContext.value = uni.createVideoContext('study-player')
+  await reloadSubtitles()
 })
 
-const history = ref([])
-const listening = ref(false)
-const overlayVisible = ref(true)
-const connectionStatus = ref('待机')
-const latency = ref(0)
-const currentInput = ref('')
-const providerIndex = ref(0)
-const targetIndex = ref(2) // 默认英语
-const sourceIndex = ref(0)
-const demoTimer = ref(null)
-
-const providerLabels = computed(() => providers.map((p) => p.label))
-const languageLabels = computed(() => languages.map((l) => l.label))
-const sourceLanguageLabels = computed(() => languages.map((l) => l.label))
-
-const overlayMessages = computed(() => {
-  const slice = history.value.slice(-4)
-  return slice.flatMap((item) => [
-    { id: `${item.id}-src`, language: item.language, text: item.original },
-    { id: `${item.id}-dst`, language: item.targetLanguage, text: item.translated }
-  ])
+watch(currentCueIndex, (val, oldVal) => {
+  if (val === oldVal || val < 0) return
+  scrollIntoViewId.value = `cue-${cues.value[val].id}`
 })
 
-const statusLabel = computed(() => (listening.value ? '监听中' : '已停止'))
-
-const demoPhrases = [
-  { text: '你好，我们可以开始会议了吗？', language: 'zh' },
-  { text: '这项功能需要尽快上线，我们的截止日期在周五。', language: 'zh' },
-  { text: '感谢你的耐心等待，我们正在处理你的请求。', language: 'zh' }
-]
-
-function handleProviderChange(event) {
-  const index = Number(event.detail.value)
-  providerIndex.value = index
-  const selected = providers[index]
-  config.provider = selected.value
-  config.endpoint = selected.endpoint
-}
-
-function handleTargetChange(event) {
-  const index = Number(event.detail.value)
-  targetIndex.value = index
-  config.targetLanguage = languages[index].value
-}
-
-function handleSourceChange(event) {
-  const index = Number(event.detail.value)
-  sourceIndex.value = index
-  config.sourceLanguage = languages[index].value
-}
-
-function toggleOverlay() {
-  overlayVisible.value = !overlayVisible.value
-}
-
-function startListening() {
-  if (listening.value) return
-  listening.value = true
-  connectionStatus.value = '监听中'
-  playDemo()
-  demoTimer.value = setInterval(playDemo, 4200)
-}
-
-function stopListening() {
-  listening.value = false
-  connectionStatus.value = '待机'
-  if (demoTimer.value) {
-    clearInterval(demoTimer.value)
-    demoTimer.value = null
+async function reloadSubtitles() {
+  loading.value = true
+  try {
+    const baseCues = await fetchSubtitles(videoId.value, 'en', 'zh')
+    const withTranslation = await translateMissingCues(videoId.value, baseCues, 'en', 'zh')
+    cues.value = withTranslation
+  } finally {
+    loading.value = false
+    await nextTick()
+    currentCueIndex.value = -1
   }
 }
 
-function clearHistory() {
-  history.value = []
+function formatTime(ms) {
+  const totalSeconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  const milli = Math.floor((ms % 1000) / 10)
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(milli).padStart(2, '0')}`
 }
 
-async function handleManualTranslate() {
-  if (!currentInput.value.trim()) return
-  await processTranscript(currentInput.value, config.sourceLanguage || 'auto')
-  currentInput.value = ''
-}
+function findCueIndex(timeMs) {
+  let left = 0
+  let right = cues.value.length - 1
 
-async function playDemo() {
-  if (!listening.value) return
-  const sample = demoPhrases[Math.floor(Math.random() * demoPhrases.length)]
-  await processTranscript(sample.text, sample.language)
-}
-
-async function processTranscript(text, language) {
-  const start = Date.now()
-  const translated = await translateText(config, text)
-  latency.value = Date.now() - start
-  const item = {
-    id: `${Date.now()}-${Math.random()}`,
-    ts: new Date().toLocaleTimeString(),
-    original: text,
-    translated,
-    language,
-    targetLanguage: config.targetLanguage
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2)
+    const cue = cues.value[mid]
+    if (timeMs < cue.startMs) {
+      right = mid - 1
+    } else if (timeMs >= cue.endMs) {
+      left = mid + 1
+    } else {
+      return mid
+    }
   }
-  history.value = [...history.value.slice(-19), item]
+
+  return -1
 }
 
-onBeforeUnmount(() => {
-  stopListening()
+function updateActiveCue(timeMs) {
+  const idx = findCueIndex(timeMs)
+  if (idx !== currentCueIndex.value) {
+    currentCueIndex.value = idx
+  }
+}
+
+function handleTimeUpdate(event) {
+  const timeMs = Math.floor(event.detail.currentTime * 1000)
+  currentTime.value = timeMs
+  updateActiveCue(timeMs)
+}
+
+function handleEnded() {
+  currentCueIndex.value = -1
+}
+
+function jumpToCue(cue) {
+  if (!videoContext.value || !cue) return
+  const seconds = cue.startMs / 1000
+  videoContext.value.seek(seconds)
+}
+
+function toggleTranslation() {
+  showTranslation.value = !showTranslation.value
+}
+
+async function onWordClick(term, cue, event) {
+  if (!term) return
+  const touch = event?.detail || event?.touches?.[0] || {}
+  const position = {
+    x: touch.x || touch.pageX || 20,
+    y: touch.y || touch.pageY || 20
+  }
+
+  const data = await lookupDictionary(term, cue.lang || 'en', 'zh')
+  dictPopup.value = {
+    visible: true,
+    x: position.x,
+    y: position.y,
+    data
+  }
+}
+
+function closePopup() {
+  dictPopup.value = { visible: false, x: 0, y: 0, data: null }
+}
+
+const popupStyle = computed(() => {
+  return `top: ${dictPopup.value.y + 10}px; left: ${dictPopup.value.x + 10}px;`
 })
 </script>
 
@@ -293,6 +235,7 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, #0f172a 0%, #111827 60%, #0b1220 100%);
   min-height: 100vh;
   box-sizing: border-box;
+  color: #e2e8f0;
 }
 
 .hero {
@@ -333,66 +276,43 @@ onBeforeUnmount(() => {
   gap: 12rpx;
 }
 
-.grid {
+.layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24rpx;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 20rpx;
 }
 
 .card {
-  background: rgba(15, 23, 42, 0.65);
+  background: rgba(15, 23, 42, 0.75);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 18rpx;
-  padding: 24rpx;
+  padding: 20rpx;
   box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.35);
 }
 
-.card.full {
-  margin-top: 24rpx;
-}
-
-.card-header {
+.player-card {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20rpx;
+  flex-direction: column;
+  gap: 16rpx;
 }
 
-.card-title {
-  color: #e2e8f0;
-  font-size: 34rpx;
-  font-weight: 700;
+.player {
+  width: 100%;
+  border-radius: 12rpx;
+  overflow: hidden;
 }
 
-.desc {
-  color: #94a3b8;
-  font-size: 26rpx;
-}
-
-.tag {
-  padding: 8rpx 16rpx;
-  border-radius: 999rpx;
-  background: rgba(248, 113, 113, 0.18);
-  color: #f87171;
-}
-
-.tag.online {
-  background: rgba(52, 211, 153, 0.18);
-  color: #34d399;
-}
-
-.stats {
+.player-meta {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12rpx;
-  margin-bottom: 20rpx;
 }
 
-.stat {
+.meta-item {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 14rpx;
-  padding: 14rpx;
+  padding: 12rpx;
 }
 
 .label {
@@ -407,122 +327,68 @@ onBeforeUnmount(() => {
   margin-top: 6rpx;
 }
 
-.actions-row {
+.subtitle-card .card-header {
   display: flex;
-  gap: 12rpx;
-  margin-bottom: 18rpx;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10rpx;
 }
 
-.primary {
-  flex: 1;
-  background: linear-gradient(90deg, #6366f1, #22d3ee);
-  color: #0b1220;
-  border: none;
-}
-
-.ghost {
-  flex: 1;
-  background: rgba(148, 163, 184, 0.15);
+.card-title {
   color: #e2e8f0;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-size: 34rpx;
+  font-weight: 700;
 }
 
-.danger {
-  flex: 1;
-  background: rgba(248, 113, 113, 0.16);
-  color: #fca5a5;
-  border: 1px solid rgba(248, 113, 113, 0.25);
-}
-
-.input-box {
-  margin-top: 12rpx;
-}
-
-.input-label {
-  color: #cbd5e1;
+.desc {
+  color: #94a3b8;
   font-size: 26rpx;
 }
 
-.textarea {
-  margin: 12rpx 0;
-  padding: 14rpx;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 12rpx;
-  color: #e2e8f0;
+.subtitle-list {
+  max-height: 700rpx;
 }
 
-.form-row {
-  margin-bottom: 18rpx;
-}
-
-.label {
-  display: block;
-  margin-bottom: 8rpx;
-}
-
-.input,
-.picker {
-  width: 100%;
+.cue-row {
   padding: 14rpx;
   border-radius: 12rpx;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  color: #e2e8f0;
-}
-
-.history {
-  max-height: 520rpx;
-}
-
-.history-row {
-  padding: 16rpx;
-  border-radius: 14rpx;
+  margin-bottom: 10rpx;
+  border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  margin-bottom: 12rpx;
 }
 
-.history-meta {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
+.cue-row.active {
+  border-color: rgba(94, 234, 212, 0.5);
+  box-shadow: 0 0 0 2rpx rgba(94, 234, 212, 0.25);
+  background: rgba(94, 234, 212, 0.05);
+}
+
+.cue-time {
+  color: #94a3b8;
+  font-size: 24rpx;
   margin-bottom: 6rpx;
 }
 
-.badge {
-  padding: 6rpx 12rpx;
-  border-radius: 999rpx;
-  background: rgba(52, 211, 153, 0.1);
-  color: #34d399;
-  font-size: 22rpx;
-}
-
-.badge.ghost {
-  background: rgba(99, 102, 241, 0.12);
-  color: #cbd5ff;
-}
-
-.time {
-  color: #94a3b8;
-  font-size: 24rpx;
-}
-
-.origin {
+.cue-text {
   color: #e2e8f0;
   font-size: 30rpx;
-  line-height: 1.5;
+  line-height: 1.55;
+  flex-wrap: wrap;
 }
 
-.translated {
-  display: flex;
-  gap: 10rpx;
-  align-items: center;
-  margin-top: 8rpx;
-}
-
-.translated .text {
+.token {
   color: #cbd5ff;
+  padding: 2rpx 6rpx;
+  border-radius: 6rpx;
+}
+
+.token:active {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.cue-translation {
+  color: #cbd5e1;
+  margin-top: 8rpx;
   font-size: 28rpx;
 }
 
@@ -532,8 +398,98 @@ onBeforeUnmount(() => {
   padding: 32rpx 0;
 }
 
+.primary {
+  background: linear-gradient(90deg, #6366f1, #22d3ee);
+  color: #0b1220;
+  border: none;
+}
+
+.ghost {
+  background: rgba(148, 163, 184, 0.15);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.dict-popup {
+  position: fixed;
+  min-width: 280rpx;
+  max-width: 70vw;
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 14rpx;
+  padding: 14rpx;
+  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.45);
+  z-index: 9999;
+}
+
+.dict-header {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-bottom: 10rpx;
+}
+
+.dict-term {
+  font-weight: 700;
+  font-size: 32rpx;
+  color: #e2e8f0;
+}
+
+.dict-phonetic {
+  color: #a5b4fc;
+}
+
+.mini-btn {
+  margin-left: auto;
+  background: rgba(148, 163, 184, 0.15);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.dict-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.dict-pos {
+  display: flex;
+  gap: 10rpx;
+  align-items: baseline;
+}
+
+.pos-type {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.pos-meaning {
+  color: #e2e8f0;
+}
+
+.dict-examples {
+  margin-top: 8rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.dict-example .ex-en {
+  color: #cbd5ff;
+}
+
+.dict-example .ex-zh {
+  color: #94a3b8;
+  font-size: 26rpx;
+}
+
+.dict-message {
+  color: #fbbf24;
+  margin-top: 8rpx;
+}
+
 @media (max-width: 700px) {
-  .grid {
+  .layout {
     grid-template-columns: 1fr;
   }
 
@@ -545,12 +501,6 @@ onBeforeUnmount(() => {
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .primary,
-  .ghost,
-  .danger {
-    flex: unset;
   }
 }
 </style>
