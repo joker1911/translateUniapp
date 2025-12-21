@@ -3,44 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Interactive Subtitle Player</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>学习型播放器</title>
   </head>
   <body>
-    <header class="app-header">
-      <div>
-        <h1>学习型播放器</h1>
-        <p class="subtitle">视频 + 交互字幕 + 查词 + 翻译</p>
-      </div>
-      <div class="meta">根据 README 开发的示例实现</div>
-    </header>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
 
-    <main class="layout">
-      <section class="player-panel">
-        <video id="video" controls preload="metadata">
-          <source
-            src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
-            type="video/mp4"
-          />
-          您的浏览器不支持 HTML5 视频。
-        </video>
-        <div class="controls">
-          <button id="play-pause">播放 / 暂停</button>
-          <button id="restart">回到开头</button>
-        </div>
-      </section>
-
-      <section class="subtitle-panel">
-        <div class="panel-header">
-          <h2>字幕</h2>
-          <div class="pill">支持双语 + 查词</div>
-        </div>
-        <ul id="subtitle-list" class="subtitle-list"></ul>
-      </section>
-    </main>
-
-    <div id="tooltip" class="tooltip hidden"></div>
-
-    <script type="module" src="src/app.js"></script>
   </body>
 </html>
